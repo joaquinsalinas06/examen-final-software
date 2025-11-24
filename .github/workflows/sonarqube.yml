@@ -41,15 +41,6 @@ jobs:
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
-        with:
-          args: >
-            -Dsonar.projectKey=Backend-Student-46
-            -Dsonar.projectName=CS Grade Calculator - Backend Student 46
-            -Dsonar.sources=src
-            -Dsonar.tests=tests
-            -Dsonar.python.coverage.reportPaths=coverage.xml
-            -Dsonar.sourceEncoding=UTF-8
-            -Dsonar.language=py
 
       - name: Check Quality Gate
         uses: sonarsource/sonarqube-quality-gate-action@master
