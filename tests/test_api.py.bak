@@ -1,0 +1,243 @@
+"""
+Tests para API REST (FastAPI)
+"""
+
+import pytest
+from fastapi.testclient import TestClient
+from src.storage.json_storage import JsonStorage
+
+
+@pytest.fixture
+def client():
+    """Fixture para el cliente de pruebas"""
+    from src.api.main import app
+    return TestClient(app)
+
+
+@pytest.fixture(autouse=True)
+def clear_storage():
+    """Fixture para limpiar storage antes de cada test"""
+    storage = JsonStorage()
+    storage.clear_all_data()
+    yield
+    storage.clear_all_data()
+
+
+def test_root_endpoint(client):
+    """Test: Endpoint raíz"""
+    response = client.get("/")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "running"
+    assert "version" in data
+
+
+def test_health_check(client):
+    """Test: Health check endpoint"""
+    response = client.get("/health")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "healthy"
+
+
+def test_register_student(client):
+    """Test: Registrar estudiante"""
+    student_data = {
+        "codigo": "202012345",
+        "nombre": "Juan Pérez"
+    }
+    response = client.post("/api/v1/students", json=student_data)
+    assert response.status_code == 201
+    data = response.json()
+    assert data["codigo"] == "202012345"
+    assert data["nombre"] == "Juan Pérez"
+
+
+def test_get_student(client):
+    """Test: Obtener estudiante registrado"""
+    # Primero registrar
+    student_data = {"codigo": "202012345", "nombre": "Juan Pérez"}
+    client.post("/api/v1/students", json=student_data)
+
+    # Luego obtener
+    response = client.get("/api/v1/students/202012345")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["codigo"] == "202012345"
+
+
+def test_get_student_not_found(client):
+    """Test: Error al obtener estudiante no existente"""
+    response = client.get("/api/v1/students/999999999")
+    assert response.status_code == 404
+
+
+def test_list_students(client):
+    """Test: Listar todos los estudiantes"""
+    # Registrar varios estudiantes
+    client.post("/api/v1/students", json={"codigo": "202012345", "nombre": "Juan"})
+    client.post("/api/v1/students", json={"codigo": "202012346", "nombre": "María"})
+
+    response = client.get("/api/v1/students")
+    assert response.status_code == 200
+    data = response.json()
+    assert len(data) == 2
+
+
+def test_calculate_grade(client):
+    """Test: Calcular nota final"""
+    # Primero registrar estudiante
+    client.post("/api/v1/students", json={"codigo": "202012345", "nombre": "Juan"})
+
+    # Calcular nota
+    calculation_data = {
+        "codigo_estudiante": "202012345",
+        "evaluaciones": [
+            {"nota": 15.0, "peso": 50.0},
+            {"nota": 17.0, "peso": 50.0}
+        ],
+        "has_minimum_attendance": True,
+        "all_years_teachers": [True, True]
+    }
+
+    response = client.post("/api/v1/calculate-grade", json=calculation_data)
+    assert response.status_code == 200
+    data = response.json()
+    assert "nota_final" in data
+    assert "promedio_ponderado" in data
+    assert "puntos_extra" in data
+    # Promedio: 16.0, Puntos extra: 2.0, Total: 18.0
+    assert abs(data["nota_final"] - 18.0) < 0.01
+
+
+def test_calculate_grade_student_not_found(client):
+    """Test: Error al calcular nota de estudiante no existente"""
+    calculation_data = {
+        "codigo_estudiante": "999999999",
+        "evaluaciones": [{"nota": 15.0, "peso": 100.0}],
+        "has_minimum_attendance": True,
+        "all_years_teachers": [True]
+    }
+
+    response = client.post("/api/v1/calculate-grade", json=calculation_data)
+    assert response.status_code == 404
+
+
+def test_calculate_grade_invalid_evaluations(client):
+    """Test: Error con evaluaciones inválidas"""
+    client.post("/api/v1/students", json={"codigo": "202012345", "nombre": "Juan"})
+
+    # Más de 10 evaluaciones (viola RNF01)
+    calculation_data = {
+        "codigo_estudiante": "202012345",
+        "evaluaciones": [{"nota": 15.0, "peso": 9.09} for _ in range(11)],
+        "has_minimum_attendance": True,
+        "all_years_teachers": [True]
+    }
+
+    response = client.post("/api/v1/calculate-grade", json=calculation_data)
+    assert response.status_code == 400
+
+
+def test_get_grade_detail(client):
+    """Test: Obtener detalle del cálculo"""
+    # Registrar y calcular
+    client.post("/api/v1/students", json={"codigo": "202012345", "nombre": "Juan"})
+    calculation_data = {
+        "codigo_estudiante": "202012345",
+        "evaluaciones": [{"nota": 16.0, "peso": 100.0}],
+        "has_minimum_attendance": True,
+        "all_years_teachers": [False]
+    }
+    client.post("/api/v1/calculate-grade", json=calculation_data)
+
+    # Obtener detalle
+    response = client.get("/api/v1/grade-detail/202012345")
+    assert response.status_code == 200
+    data = response.json()
+    assert "detalle" in data
+    assert "nota_final" in data
+
+
+def test_get_grade_detail_not_found(client):
+    """Test: Error al obtener detalle sin cálculos"""
+    response = client.get("/api/v1/grade-detail/999999999")
+    assert response.status_code == 404
+
+
+def test_check_attendance(client):
+    """Test: Consultar asistencia mínima"""
+    response = client.get(
+        "/api/v1/attendance/202012345",
+        params={"has_reached_minimum_classes": True}
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["cumple_asistencia_minima"] is True
+
+
+def test_check_extra_points(client):
+    """Test: Consultar elegibilidad para puntos extra"""
+    response = client.get(
+        "/api/v1/extra-points/202012345",
+        params={"all_years_teachers": "true,true,true"}
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["es_elegible"] is True
+    assert abs(data["puntos_extra"] - 2.0) < 0.01
+
+
+def test_check_extra_points_not_eligible(client):
+    """Test: No elegible para puntos extra"""
+    response = client.get(
+        "/api/v1/extra-points/202012345",
+        params={"all_years_teachers": "true,false,true"}
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["es_elegible"] is False
+    assert abs(data["puntos_extra"] - 0.0) < 0.01
+
+
+def test_check_extra_points_invalid_format(client):
+    """Test: Error con formato inválido de all_years_teachers"""
+    response = client.get(
+        "/api/v1/extra-points/202012345",
+        params={"all_years_teachers": "invalid"}
+    )
+    assert response.status_code == 400
+
+
+def test_get_calculation_history(client):
+    """Test: Obtener historial de cálculos"""
+    # Registrar y hacer varios cálculos
+    client.post("/api/v1/students", json={"codigo": "202012345", "nombre": "Juan"})
+
+    calc1 = {
+        "codigo_estudiante": "202012345",
+        "evaluaciones": [{"nota": 15.0, "peso": 100.0}],
+        "has_minimum_attendance": True,
+        "all_years_teachers": [False]
+    }
+    calc2 = {
+        "codigo_estudiante": "202012345",
+        "evaluaciones": [{"nota": 17.0, "peso": 100.0}],
+        "has_minimum_attendance": True,
+        "all_years_teachers": [True, True]
+    }
+
+    client.post("/api/v1/calculate-grade", json=calc1)
+    client.post("/api/v1/calculate-grade", json=calc2)
+
+    # Obtener historial
+    response = client.get("/api/v1/calculations/202012345")
+    assert response.status_code == 200
+    data = response.json()
+    assert len(data) == 2
+
+
+def test_get_calculation_history_not_found(client):
+    """Test: Error al obtener historial sin cálculos"""
+    response = client.get("/api/v1/calculations/999999999")
+    assert response.status_code == 404
