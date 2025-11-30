@@ -3,13 +3,16 @@
 Sistema de cálculo de notas finales para UTEC desarrollado con FastAPI y arquitectura orientada a objetos.
 
 
+
 ## Resultados de calidad y análisis SonarQube
 
-### Calidad requerida
-![Calidad requerida](quality.png)
+### Rquerido
+![Calidad requerida](sonnar.png)
 
 ### Resultado del alumno en SonarQube
-![Resultado SonarQube](sonnar.png)
+![Resultado SonarQube](quality.png)
+
+
 ## Características
 
 - Cálculo de nota final con evaluaciones ponderadas
